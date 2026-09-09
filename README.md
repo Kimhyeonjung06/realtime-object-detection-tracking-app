@@ -25,11 +25,16 @@ https://huggingface.co/spaces/Kimhyeonjung06/realtime-object-detection-tracking
 
 <!-- TODO: verify this URL once the Space is created -->
 
-## Screenshot
+## Demo
 
-![Application screenshot](docs/screenshot.png)
+![Detection and tracking output](docs/demo.gif)
 
-<!-- TODO: save a screenshot of the running app to docs/screenshot.png -->
+Two seconds of output from the bundled sample clip, produced by YOLO11n with ByteTrack at an
+inference size of 640. Every box carries a track ID, and a given person keeps the same ID from
+frame to frame rather than being re-detected as someone new. The full run over this clip
+registered 52 unique tracks.
+
+<!-- TODO: add docs/screenshot.png, a capture of the Gradio interface -->
 
 ## Features
 

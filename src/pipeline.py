@@ -155,6 +155,7 @@ def run_tracking(
     iou: float = 0.45,
     imgsz: int = 640,
     max_seconds: float = 20.0,
+    line_width: Optional[int] = None,
     progress_cb: Optional[Callable[[float, str], None]] = None,
 ) -> Tuple[str, TrackingStats]:
     """영상 한 편을 탐지·추적해 오버레이 영상과 통계를 반환한다.
@@ -165,6 +166,7 @@ def run_tracking(
         conf, iou: 탐지 신뢰도 / NMS IoU 임계값.
         imgsz: 추론 입력 해상도. 작을수록 빠르고 작은 객체에 약해진다.
         max_seconds: 무료 CPU 환경 보호용 처리 길이 상한(초). 0 이하면 전체 처리.
+        line_width: 오버레이 선 두께. None이면 해상도에 맞춰 자동. 작게 주면 라벨도 작아진다.
         progress_cb: (0~1 진행률, 메시지)를 받는 콜백. Gradio 진행바 연결용.
 
     Returns:
@@ -221,7 +223,7 @@ def run_tracking(
             total_infer_ms += (time.perf_counter() - t0) * 1000.0
 
             result = results[0]
-            writer.write(result.plot())
+            writer.write(result.plot(line_width=line_width))
 
             boxes = result.boxes
             frame_counts: Dict[str, int] = defaultdict(int)
