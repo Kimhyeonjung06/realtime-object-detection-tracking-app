@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 자동 다운로드되는 모델 가중치
+*.pt
+*.onnx
+
+# 실행 산출물
+runs/
+outputs/
+*.mp4.out.mp4
+gradio_cached_examples/
+.gradio/
+
+# 큰 샘플 영상은 커밋하지 않음 (scripts/fetch_samples.py 로 재생성)
+samples/vehicles.mp4
+
+# 에디터/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
