@@ -65,6 +65,49 @@ Three details worth noting:
 - **Output is re-encoded to H.264 (yuv420p).** OpenCV's default mp4v output is not playable in most
   browsers. If a system `ffmpeg` is unavailable, the binary bundled with `imageio-ffmpeg` is used.
 
+## Deployment runtime benchmark
+
+A second tab runs the same weights through **PyTorch, ONNX Runtime FP32, and ONNX Runtime INT8**
+and measures what actually decides whether a model ships to a device: per-frame latency, file
+size, and how much detection quality the conversion costs.
+
+Measured on an AMD Ryzen 5 5600 (6 cores, AVX2, no VNNI), YOLOv8n, 640×640, 40 frames:
+
+| Runtime | Median | p95 | Model | Agreement with PyTorch |
+| --- | --- | --- | --- | --- |
+| PyTorch FP32 | 113 ms | 122 ms | 6.5 MB | baseline |
+| ONNX Runtime FP32 | 90 ms (1.26×) | 108 ms | 12.9 MB | 99.1% |
+| ONNX Runtime INT8 | 75 ms (1.51×) | 84 ms | 3.6 MB | 93.6% |
+
+Latency is the forward pass only, with pre- and post-processing excluded. There are no labels for
+this footage, so instead of reporting an mAP that could not be computed honestly, quality is the
+share of PyTorch detections the converted model reproduces at IoU 0.5 with the same class.
+
+Four things this exercise turned up, all of which shaped the implementation:
+
+- **Quantizing the whole graph produces a model that detects nothing.** Static INT8 across every
+  op returned zero detections on every frame: the box-decoding arithmetic in the detection head
+  does not survive 8-bit. Restricting quantization to `Conv` keeps 93.6% of detections.
+- **YOLO11 cannot be statically quantized by ONNX Runtime at all.** Its C2PSA attention block
+  fails in the quantizer (`Only an existing tensor can be modified, '.../attn/Softmax_output_0'`),
+  and excluding those nodes does not help — the calibrator has already recorded the tensor. The
+  benchmark reports this rather than hiding it, and YOLOv8 is the default for this tab. Model
+  architecture constrains the deployment path, not just the accuracy number.
+- **Measuring several runtimes in one process gives wrong numbers.** Thread pools from an earlier
+  runtime stay alive and take cores from the next measurement; PyTorch measured 41 ms alone and
+  119 ms after an ONNX Runtime session had been created. Each runtime is now timed in its own
+  subprocess, and repeated runs agree within a few percent.
+- **INT8 pays off in size unconditionally, in latency only with hardware support.** This CPU has
+  AVX2 but no VNNI, so the 1.8× smaller model buys 1.2× over ONNX FP32 rather than the larger
+  gains VNNI-capable silicon or an NPU would give.
+
+```bash
+python -m src.benchmark samples/people-walking.mp4 --model YOLOv8n --frames 40
+```
+
+Exported and quantized models are cached under `models/`, so only the first run pays the
+conversion cost.
+
 ## Running locally
 
 ```bash
@@ -100,6 +143,7 @@ python -m src.pipeline samples/people-walking.mp4 --model YOLO11n --imgsz 480
 | --- | --- |
 | Detection | Ultralytics YOLO11 / YOLOv8, COCO-pretrained |
 | Tracking | ByteTrack, BoT-SORT |
+| Deployment | ONNX, ONNX Runtime, INT8 static quantization |
 | Video | OpenCV, FFmpeg |
 | Interface | Gradio Blocks |
 | Deployment | Hugging Face Spaces |
@@ -109,6 +153,7 @@ python -m src.pipeline samples/people-walking.mp4 --model YOLO11n --imgsz 480
 ```
 app.py                    Gradio interface (entry point)
 src/pipeline.py           Detection and tracking pipeline, UI-independent, also runnable as a CLI
+src/benchmark.py          ONNX export, INT8 static quantization, runtime measurement
 scripts/fetch_samples.py  Sample video downloader
 samples/                  Demo clips
 apt.txt                   System packages for Hugging Face Spaces (ffmpeg, libgl1)
