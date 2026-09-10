@@ -148,6 +148,49 @@ python -m src.benchmark samples/people-walking.mp4 --model YOLOv8n --frames 40
 Exported and quantized models are cached under `models/`, so only the first run pays the
 conversion cost.
 
+## C++ inference CLI
+
+`cpp/` holds a standalone C++17 program that runs the same exported ONNX model with no Python
+involved — an executable, the model file, and the ONNX Runtime shared library are the whole
+deployment. It is the shape an embedded target usually needs.
+
+It links only ONNX Runtime; image decoding uses the single-header `stb` libraries rather than
+OpenCV, and letterboxing, output decoding and per-class NMS are implemented directly.
+
+```bash
+cd cpp
+cmake -B build -DONNXRUNTIME_ROOT=/path/to/onnxruntime-win-x64-1.29.0
+cmake --build build --config Release
+
+./build/yolo_infer ../models/yolov8n_640.onnx ../frames --threads 6 --out annotated
+```
+
+Measured on the same machine, 20 frames of 1920×1080, 6 threads:
+
+| Build | Median | Throughput |
+| --- | --- | --- |
+| FP32 ONNX | 29.3 ms | 34 FPS |
+| INT8 ONNX | 24.7 ms | 40 FPS |
+
+The 1.19× INT8 gain matches what the Python benchmark measured, which is the useful part: the
+conversion behaves the same way outside the Python stack. The absolute numbers are lower than the
+Python table above, but that is **not** a language comparison — the C++ build links ONNX Runtime
+1.29 while the Python environment is pinned to 1.19, the last release supporting Python 3.9.
+
+Correctness was checked against the Python pipeline on identical frames: 672 detections
+(646 person) from the C++ postprocessing versus 669 (644 person) from Ultralytics — a 0.3%
+difference, attributable to nearest-neighbour versus bilinear resizing in the letterbox step.
+
+Two Windows details worth noting, since both produce silent failures:
+
+- The entry point is `wmain`, and paths stay as `std::filesystem::path` end to end. A narrow
+  `argv` is encoded in the system code page, so any non-ASCII path is unrecoverable by the time
+  it reaches the program; `stb` only accepts narrow paths, so files are opened with `_wfopen` and
+  handed over as a `FILE*`.
+- The MinGW build links its runtime statically. Without that the executable depends on
+  `libstdc++`, `libgcc` and `libwinpthread` DLLs and dies with a bare exit code on any machine
+  that lacks the toolchain.
+
 ## Running locally
 
 ```bash
@@ -186,6 +229,7 @@ python -m src.pipeline samples/people-walking.mp4 --model YOLO11n --imgsz 480
 | Deployment | ONNX, ONNX Runtime, INT8 static quantization |
 | Video | OpenCV, FFmpeg |
 | Interface | Gradio Blocks |
+| Native build | C++17, CMake, ONNX Runtime C++ API, stb |
 | Deployment | Hugging Face Spaces |
 
 ## Project layout
@@ -194,6 +238,7 @@ python -m src.pipeline samples/people-walking.mp4 --model YOLO11n --imgsz 480
 app.py                    Gradio interface (entry point)
 src/pipeline.py           Detection and tracking pipeline, UI-independent, also runnable as a CLI
 src/benchmark.py          ONNX export, INT8 static quantization, runtime measurement
+cpp/                      Standalone C++17 inference CLI (ONNX Runtime, no Python)
 scripts/fetch_samples.py  Sample video downloader
 samples/                  Demo clips, including thermal footage (see samples/SOURCES.md)
 apt.txt                   System packages for Hugging Face Spaces (ffmpeg, libgl1)

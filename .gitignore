@@ -9,6 +9,9 @@ env/
 *.onnx
 models/
 
+# C++ 빌드 산출물
+cpp/build/
+
 # 실행 산출물
 runs/
 outputs/
