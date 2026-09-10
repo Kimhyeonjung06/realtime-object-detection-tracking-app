@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
+import numpy as np
 
 # UI 라벨 -> Ultralytics 가중치 이름
 AVAILABLE_MODELS: Dict[str, str] = {
@@ -29,6 +30,27 @@ AVAILABLE_TRACKERS: Dict[str, str] = {
     "ByteTrack": "bytetrack.yaml",
     "BoT-SORT": "botsort.yaml",
 }
+
+# 열화상 입력 대응. COCO 사전학습 가중치는 가시광 이미지의 색 분포를 학습했으므로,
+# 온도를 색으로 칠한 false-color 영상은 학습 분포에서 크게 벗어난다. 팔레트를 걷어내
+# 휘도만 남기면 탐지가 눈에 띄게 살아난다(README의 측정값 참고).
+PREPROCESSORS: Dict[str, str] = {
+    "없음 (가시광)": "none",
+    "그레이스케일 (열화상)": "gray",
+    "그레이스케일 + CLAHE (열화상)": "clahe",
+}
+
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
+def apply_preprocess(frame: np.ndarray, mode: str) -> np.ndarray:
+    """추론 전 입력 변환. 결과 영상도 이 프레임 위에 그린다(모델이 본 것을 그대로 보여주기 위해)."""
+    if mode == "none":
+        return frame
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    if mode == "clahe":
+        gray = _CLAHE.apply(gray)
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
 _MODEL_CACHE: Dict[str, "object"] = {}
 
@@ -155,6 +177,7 @@ def run_tracking(
     iou: float = 0.45,
     imgsz: int = 640,
     max_seconds: float = 20.0,
+    preprocess_label: str = "없음 (가시광)",
     line_width: Optional[int] = None,
     progress_cb: Optional[Callable[[float, str], None]] = None,
 ) -> Tuple[str, TrackingStats]:
@@ -166,6 +189,7 @@ def run_tracking(
         conf, iou: 탐지 신뢰도 / NMS IoU 임계값.
         imgsz: 추론 입력 해상도. 작을수록 빠르고 작은 객체에 약해진다.
         max_seconds: 무료 CPU 환경 보호용 처리 길이 상한(초). 0 이하면 전체 처리.
+        preprocess_label: 추론 전 입력 변환 (PREPROCESSORS 키). 열화상 입력에 사용.
         line_width: 오버레이 선 두께. None이면 해상도에 맞춰 자동. 작게 주면 라벨도 작아진다.
         progress_cb: (0~1 진행률, 메시지)를 받는 콜백. Gradio 진행바 연결용.
 
@@ -177,6 +201,7 @@ def run_tracking(
 
     weights = AVAILABLE_MODELS.get(model_label, "yolo11n.pt")
     tracker_cfg = AVAILABLE_TRACKERS.get(tracker_label, "bytetrack.yaml")
+    preprocess_mode = PREPROCESSORS.get(preprocess_label, "none")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -208,6 +233,7 @@ def run_tracking(
             ok, frame = cap.read()
             if not ok:
                 break
+            frame = apply_preprocess(frame, preprocess_mode)
 
             t0 = time.perf_counter()
             # 첫 프레임은 persist=False로 호출해 이전 실행의 추적 상태를 초기화한다.
@@ -279,6 +305,7 @@ if __name__ == "__main__":  # 간단한 CLI: python -m src.pipeline <video>
     parser.add_argument("--iou", type=float, default=0.45)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--max-seconds", type=float, default=0.0)
+    parser.add_argument("--preprocess", default="없음 (가시광)", choices=list(PREPROCESSORS))
     args = parser.parse_args()
 
     path, stats = run_tracking(
@@ -289,6 +316,7 @@ if __name__ == "__main__":  # 간단한 CLI: python -m src.pipeline <video>
         iou=args.iou,
         imgsz=args.imgsz,
         max_seconds=args.max_seconds,
+        preprocess_label=args.preprocess,
         progress_cb=lambda p, msg: print(f"\r{p*100:5.1f}% {msg}", end=""),
     )
     print("\n" + stats.to_markdown())

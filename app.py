@@ -10,7 +10,7 @@ import gradio as gr
 import pandas as pd
 
 from src.benchmark import results_to_markdown, results_to_table, run_benchmark
-from src.pipeline import AVAILABLE_MODELS, AVAILABLE_TRACKERS, run_tracking
+from src.pipeline import AVAILABLE_MODELS, AVAILABLE_TRACKERS, PREPROCESSORS, run_tracking
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 
@@ -34,7 +34,7 @@ TIPS = """
 """
 
 
-def analyze(video, model_label, tracker_label, conf, iou, imgsz, max_seconds,
+def analyze(video, model_label, tracker_label, conf, iou, imgsz, max_seconds, preprocess,
             progress=gr.Progress()):
     if not video:
         raise gr.Error("먼저 영상을 업로드하거나 아래 샘플을 선택하세요.")
@@ -49,6 +49,7 @@ def analyze(video, model_label, tracker_label, conf, iou, imgsz, max_seconds,
             iou=float(iou),
             imgsz=int(imgsz),
             max_seconds=float(max_seconds),
+            preprocess_label=preprocess,
             progress_cb=lambda p, msg: progress(p, desc=f"추론 중… {msg}"),
         )
     except ValueError as exc:
@@ -163,6 +164,12 @@ def _build_tracking_tab(sample_videos):
                 value=list(AVAILABLE_TRACKERS)[0],
                 label="추적 알고리즘",
             )
+            pre_dd = gr.Dropdown(
+                choices=list(PREPROCESSORS),
+                value=list(PREPROCESSORS)[0],
+                label="입력 전처리",
+                info="열화상(IR) 영상은 그레이스케일로 바꿔야 탐지가 살아납니다.",
+            )
             with gr.Accordion("고급 설정", open=False):
                 conf_sl = gr.Slider(0.05, 0.95, value=0.25, step=0.05,
                                     label="Confidence threshold")
@@ -194,7 +201,7 @@ def _build_tracking_tab(sample_videos):
 
     run_btn.click(
         fn=analyze,
-        inputs=[video_in, model_dd, tracker_dd, conf_sl, iou_sl, imgsz_dd, sec_sl],
+        inputs=[video_in, model_dd, tracker_dd, conf_sl, iou_sl, imgsz_dd, sec_sl, pre_dd],
         outputs=[video_out, summary_md, stats_df],
     )
 

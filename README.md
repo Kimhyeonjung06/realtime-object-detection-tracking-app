@@ -44,6 +44,8 @@ registered 52 unique tracks.
 - Adjustable confidence, NMS IoU, and inference resolution, so the speed/accuracy trade-off is visible in the UI.
 - Measured performance: milliseconds per frame, inference FPS, and end-to-end pipeline FPS including decode and encode.
 - Per-class statistics separating *unique tracks* from *peak simultaneous detections*.
+- Thermal input support: a preprocessing selector that makes an RGB-pretrained model usable on
+  infrared footage (measured below).
 - Input from file upload, webcam, or bundled sample clips.
 
 ## How it works
@@ -64,6 +66,44 @@ Three details worth noting:
   Peak simultaneous detections are reported separately, since the two numbers answer different questions.
 - **Output is re-encoded to H.264 (yuv420p).** OpenCV's default mp4v output is not playable in most
   browsers. If a system `ffmpeg` is unavailable, the binary bundled with `imageio-ffmpeg` is used.
+
+## Thermal (infrared) input
+
+Surveillance and targeting systems rarely see only daylight RGB, so the app carries a preprocessing
+selector and a thermal sample clip. The interesting part is how badly a COCO-pretrained,
+visible-light model handles infrared, and how much of that gap is closed by a two-line change.
+
+![False-color versus grayscale thermal detection](docs/thermal-comparison.png)
+
+Both panels are the same frame. On the left, two people stand out clearly to a human eye and the
+detector finds neither; on the right, the identical frame with the color palette stripped out
+yields both.
+
+Across the whole 10-second clip (151 frames, YOLO11n, 640, conf 0.25):
+
+| Preprocessing | Detections | of which person | Most frequent false classes |
+| --- | --- | --- | --- |
+| As captured (false-color) | 59 | 5 | kite 35, traffic light 16 |
+| Grayscale | 132 | 60 | airplane 30, truck 15 |
+| Grayscale + CLAHE | 152 | 46 | truck 34, skateboard 34 |
+
+Run through the tracker, that becomes 0, 3 and 4 unique person tracks respectively.
+
+- **The palette, not the sensor, is what breaks the model.** A thermal camera's ironbow mapping
+  paints temperature as hue, so a warm body arrives as a saturated orange blob — a color
+  distribution nothing in COCO resembles. Discarding the palette and keeping luminance raises
+  person detections from 5 to 60, a 12× difference from a color-space conversion.
+- **CLAHE is not a free win.** Local contrast equalization finds more objects overall but fewer
+  people, and it invents trucks and skateboards out of amplified background texture. It is offered
+  as an option rather than a default because the measurement did not support making it one.
+- **Preprocessing narrows the domain gap; it does not close it.** Even the best configuration
+  reports ~30 phantom aircraft in ten seconds of street footage. A visible-light detector is not
+  an infrared detector, and the real fix is training data from the target sensor — this toggle
+  makes the size of that gap visible instead of papering over it.
+
+```bash
+python -m src.pipeline samples/thermal-street.mp4 --preprocess "그레이스케일 (열화상)"
+```
 
 ## Deployment runtime benchmark
 
@@ -155,7 +195,7 @@ app.py                    Gradio interface (entry point)
 src/pipeline.py           Detection and tracking pipeline, UI-independent, also runnable as a CLI
 src/benchmark.py          ONNX export, INT8 static quantization, runtime measurement
 scripts/fetch_samples.py  Sample video downloader
-samples/                  Demo clips
+samples/                  Demo clips, including thermal footage (see samples/SOURCES.md)
 apt.txt                   System packages for Hugging Face Spaces (ffmpeg, libgl1)
 requirements.txt
 ```
