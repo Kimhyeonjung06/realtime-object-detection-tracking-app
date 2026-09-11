@@ -168,8 +168,9 @@ in Python; the C++ build links ONNX Runtime 1.29 while the Python environment is
 the last release supporting Python 3.9, and that version difference has not been isolated.
 
 Correctness was checked against the Python pipeline on identical frames: 672 detections
-(646 person) from the C++ postprocessing versus 669 (644 person) from Ultralytics — a 0.3%
-difference, attributable to nearest-neighbour versus bilinear resizing in the letterbox step.
+(646 person) from the C++ postprocessing versus 669 (644 person) from Ultralytics, a difference
+of 0.45% overall and 0.31% for person. The likely source is nearest-neighbour versus bilinear
+resizing in the letterbox step, though that has not been isolated.
 
 Two Windows details worth noting, since both produce silent failures:
 
