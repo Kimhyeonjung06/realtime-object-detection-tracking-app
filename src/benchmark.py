@@ -156,8 +156,9 @@ def quantize_int8(onnx_path: Path, calib_frames: Sequence[np.ndarray], imgsz: in
             activation_type=QuantType.QUInt8,
             weight_type=QuantType.QInt8,
             per_channel=True,
-            # Conv만 양자화한다. 그래프 전체를 양자화하면 탐지 헤드의 박스 디코딩까지
-            # INT8로 내려앉아 출력이 전부 임계값 아래로 무너진다(실측: 탐지 수 0).
+            # Conv만 양자화한다. 그래프 전체를 양자화하면 박스 좌표(0~640)와 클래스 점수(0~1)가
+            # 함께 담긴 출력 텐서에 8비트 스케일 하나(실측 2.5)가 걸려, 점수가 전부 0으로
+            # 반올림되고 탐지가 0개가 된다.
             op_types_to_quantize=["Conv"],
             calibrate_method=CalibrationMethod.MinMax,
         )

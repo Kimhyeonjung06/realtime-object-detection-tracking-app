@@ -109,8 +109,11 @@ share of PyTorch detections the converted model reproduces at IoU 0.5 with the s
 Four things this exercise turned up, all of which shaped the implementation:
 
 - **Quantizing the whole graph produces a model that detects nothing.** Static INT8 across every
-  op returned zero detections on every frame: the box-decoding arithmetic in the detection head
-  does not survive 8-bit. Restricting quantization to `Conv` keeps 93.6% of detections.
+  op returned zero detections on every frame. Inspecting the raw output shows why: YOLO's final
+  tensor packs box coordinates (0–640) and class scores (0–1) together, and full-graph quantization
+  gives that tensor a single 8-bit scale of 2.5. Every class score rounds to zero (max 0.82 in FP32,
+  0.00 in INT8) while the boxes survive. Restricting quantization to `Conv` leaves the output in
+  floating point and keeps 93.6% of detections.
 - **YOLO11 cannot be statically quantized by ONNX Runtime at all.** Its C2PSA attention block
   fails in the quantizer (`Only an existing tensor can be modified, '.../attn/Softmax_output_0'`),
   and excluding those nodes does not help — the calibrator has already recorded the tensor. The
