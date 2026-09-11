@@ -1,15 +1,3 @@
----
-title: Realtime Object Detection Tracking
-emoji: 🎯
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-app_file: app.py
-pinned: false
-license: mit
-short_description: Object detection and tracking web app built on YOLO and ByteTrack
----
-
 # Real-time Object Detection and Tracking
 
 A web application that detects objects in a video and tracks them across frames. Upload a clip,
@@ -17,13 +5,7 @@ and the app returns an annotated video with bounding boxes and persistent track 
 per-class counts and measured throughput.
 
 Detection uses off-the-shelf pretrained YOLO weights; tracking uses ByteTrack or BoT-SORT.
-The point of the project is not a new model but a working, deployed application around one.
-
-## Live demo
-
-https://huggingface.co/spaces/Kimhyeonjung06/realtime-object-detection-tracking
-
-<!-- TODO: verify this URL once the Space is created -->
+The point of the project is not a new model but a working application around one.
 
 ## Demo
 
@@ -213,8 +195,7 @@ python app.py                     # http://127.0.0.1:7860
 ```
 
 Model weights (`yolo11n.pt` and friends) download automatically on first use.
-Python 3.10 or newer is recommended to match the Hugging Face Spaces runtime; 3.9 also works
-through the version markers in `requirements.txt`.
+Python 3.10 or newer is recommended; 3.9 also works through the version markers in `requirements.txt`.
 
 The pipeline runs standalone as well:
 
@@ -238,7 +219,6 @@ python -m src.pipeline samples/people-walking.mp4 --model YOLO11n --imgsz 480
 | Video | OpenCV, FFmpeg |
 | Interface | Gradio Blocks |
 | Native build | C++17, CMake, ONNX Runtime C++ API, stb |
-| Deployment | Hugging Face Spaces |
 
 ## Project layout
 
@@ -249,7 +229,7 @@ src/benchmark.py          ONNX export, INT8 static quantization, runtime measure
 cpp/                      Standalone C++17 inference CLI (ONNX Runtime, no Python)
 scripts/fetch_samples.py  Sample video downloader
 samples/                  Demo clips, including thermal footage (see samples/SOURCES.md)
-apt.txt                   System packages for Hugging Face Spaces (ffmpeg, libgl1)
+apt.txt                   System packages (ffmpeg, libgl1)
 requirements.txt
 ```
 
@@ -258,10 +238,10 @@ batch job without modification.
 
 ## Notes
 
-- Reported FPS is measured on whatever hardware the app runs on. A free CPU Space produces single-digit
+- Reported FPS is measured on whatever hardware the app runs on. A CPU produces single-digit
   numbers; a GPU is considerably faster. No figures here are estimated or scaled.
 - The models are public pretrained checkpoints, not trained for this project.
-- Processing is capped at 20 seconds of video by default to keep free CPU hosting responsive.
+- Processing is capped at 20 seconds of video by default for responsiveness.
 
 ## License
 
