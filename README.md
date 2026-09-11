@@ -111,13 +111,14 @@ A second tab runs the same weights through **PyTorch, ONNX Runtime FP32, and ONN
 and measures what actually decides whether a model ships to a device: per-frame latency, file
 size, and how much detection quality the conversion costs.
 
-Measured on an AMD Ryzen 5 5600 (6 cores, AVX2, no VNNI), YOLOv8n, 640×640, 40 frames:
+Measured on an AMD Ryzen 5 5600 (6 cores, AVX2, no VNNI), YOLOv8n, 640×640, 40 frames, 6 threads,
+ONNX Runtime 1.19. Each figure is the mean of two runs, which agreed within 6%:
 
 | Runtime | Median | p95 | Model | Agreement with PyTorch |
 | --- | --- | --- | --- | --- |
-| PyTorch FP32 | 113 ms | 122 ms | 6.5 MB | baseline |
-| ONNX Runtime FP32 | 90 ms (1.26×) | 108 ms | 12.9 MB | 99.1% |
-| ONNX Runtime INT8 | 75 ms (1.51×) | 84 ms | 3.6 MB | 93.6% |
+| PyTorch FP32 | 47 ms | 49 ms | 6.5 MB | baseline |
+| ONNX Runtime FP32 | 31 ms (1.50×) | 34 ms | 12.9 MB | 99.1% |
+| ONNX Runtime INT8 | 31 ms (1.48×) | 35 ms | 3.6 MB | 93.6% |
 
 Latency is the forward pass only, with pre- and post-processing excluded. There are no labels for
 this footage, so instead of reporting an mAP that could not be computed honestly, quality is the
@@ -133,13 +134,19 @@ Four things this exercise turned up, all of which shaped the implementation:
   and excluding those nodes does not help — the calibrator has already recorded the tensor. The
   benchmark reports this rather than hiding it, and YOLOv8 is the default for this tab. Model
   architecture constrains the deployment path, not just the accuracy number.
-- **Measuring several runtimes in one process gives wrong numbers.** Thread pools from an earlier
-  runtime stay alive and take cores from the next measurement; PyTorch measured 41 ms alone and
-  119 ms after an ONNX Runtime session had been created. Each runtime is now timed in its own
-  subprocess, and repeated runs agree within a few percent.
-- **INT8 pays off in size unconditionally, in latency only with hardware support.** This CPU has
-  AVX2 but no VNNI, so the 1.8× smaller model buys 1.2× over ONNX FP32 rather than the larger
-  gains VNNI-capable silicon or an NPU would give.
+- **The first version of this table was measured on one thread, and nothing said so.** Ultralytics
+  writes `OMP_NUM_THREADS=1` into the process environment when it is imported. The benchmark's
+  worker subprocesses inherited it, so PyTorch and ONNX Runtime both ran single-threaded and
+  reported 113 / 90 / 75 ms instead of 47 / 31 / 31 ms. It surfaced only because the C++ build ran
+  the same model in 29 ms. Changing the parent process one step at a time isolated it: a worker
+  that measured 30 ms on its own took 87 ms once the parent had merely imported the library. The
+  thread count is now pinned explicitly for every worker, and the tracking tab, which the same
+  variable had held to one thread, resets it after import. The conclusion changed with the numbers:
+  the inflated figures showed INT8 1.2× faster than FP32, and the corrected ones show no difference.
+- **INT8 bought size, not speed.** The quantized model is 3.6× smaller than the FP32 ONNX file and
+  keeps 93.6% of detections, but on this CPU with ONNX Runtime 1.19 it runs no faster than FP32.
+  The C++ build, on ONNX Runtime 1.29, does measure 1.19×; the runtime version is the likely
+  factor, though that has not been isolated.
 
 ```bash
 python -m src.benchmark samples/people-walking.mp4 --model YOLOv8n --frames 40
@@ -172,10 +179,11 @@ Measured on the same machine, 20 frames of 1920×1080, 6 threads:
 | FP32 ONNX | 29.3 ms | 34 FPS |
 | INT8 ONNX | 24.7 ms | 40 FPS |
 
-The 1.19× INT8 gain matches what the Python benchmark measured, which is the useful part: the
-conversion behaves the same way outside the Python stack. The absolute numbers are lower than the
-Python table above, but that is **not** a language comparison — the C++ build links ONNX Runtime
-1.29 while the Python environment is pinned to 1.19, the last release supporting Python 3.9.
+FP32 lands within 2 ms of the Python ONNX Runtime figure (31 ms), so moving to C++ did not change
+inference speed: the forward pass runs in the same library either way. What the C++ build removes
+is everything else that would have to be deployed alongside it. INT8 is 1.19× faster here but not
+in Python; the C++ build links ONNX Runtime 1.29 while the Python environment is pinned to 1.19,
+the last release supporting Python 3.9, and that version difference has not been isolated.
 
 Correctness was checked against the Python pipeline on identical frames: 672 detections
 (646 person) from the C++ postprocessing versus 669 (644 person) from Ultralytics — a 0.3%

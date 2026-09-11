@@ -109,11 +109,28 @@ class TrackingStats:
         )
 
 
+def physical_cores() -> int:
+    """추론 스레드 수로 쓸 물리 코어 수. 얻지 못하면 논리 코어의 절반."""
+    import os
+
+    try:
+        import psutil
+
+        count = psutil.cpu_count(logical=False)
+    except Exception:  # noqa: BLE001 - psutil이 없거나 값을 못 얻는 환경
+        count = None
+    return count or max(1, (os.cpu_count() or 2) // 2)
+
+
 def load_model(weights: str):
     """가중치를 캐싱해 재실행 시 로딩 비용을 없앤다."""
     if weights not in _MODEL_CACHE:
+        import torch
         from ultralytics import YOLO  # 지연 임포트 (앱 기동 속도 확보)
 
+        # ultralytics는 import 시점에 OMP_NUM_THREADS=1을 설정해 PyTorch를 단일 스레드로
+        # 묶는다. import 이후에 스레드 수를 다시 지정하지 않으면 코어를 하나만 쓴다.
+        torch.set_num_threads(physical_cores())
         _MODEL_CACHE[weights] = YOLO(weights)
     return _MODEL_CACHE[weights]
 

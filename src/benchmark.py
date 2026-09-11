@@ -184,27 +184,35 @@ def _load_backend(source: str):
     return _BACKEND_CACHE[source]
 
 
-def _thread_count() -> int:
-    """세 런타임에 동일하게 적용할 스레드 수.
+def bench_threads() -> int:
+    """측정에 쓸 스레드 수: 물리 코어 수로 고정한다.
 
-    런타임마다 기본 스레드 정책이 달라, 맞춰주지 않으면 스레드 수 차이를
-    런타임 성능 차이로 착각하게 된다.
+    런타임마다 기본 스레드 정책이 달라 명시적으로 맞춰야 한다. 이 값을 라이브러리의
+    현재 상태(torch.get_num_threads 등)에서 읽어오면 안 된다. ultralytics는 import 시점에
+    OMP_NUM_THREADS=1을 프로세스 환경에 써 넣기 때문에, 그 뒤에 읽으면 1이 나온다.
     """
-    import torch
+    from .pipeline import physical_cores
 
-    return torch.get_num_threads()
+    return physical_cores()
 
 
 def measure_inference(kind: str, source: str, tensors: Sequence[np.ndarray]) -> List[float]:
-    """각 런타임을 별도 프로세스에서 측정한다.
+    """각 런타임을 별도 프로세스에서, 스레드 수를 명시적으로 고정해 측정한다.
 
-    한 프로세스 안에서 연달아 재면 앞서 만든 런타임의 스레드 풀이 살아남아 뒤 측정을
-    오염시킨다(실측: 동일 조건에서 PyTorch 지연이 41ms -> 119ms로 왜곡). 프로세스를
-    분리하면 각 런타임이 깨끗한 상태에서 코어를 온전히 쓴다.
+    처음 구현은 자식 프로세스에 부모 환경을 그대로 물려줬다. 부모가 ultralytics를
+    import하면서 OMP_NUM_THREADS=1이 들어가 있었고, 그 결과 자식의 PyTorch와
+    ONNX Runtime이 모두 단일 스레드로 돌아 지연이 2.5~3배 부풀려졌다(실측: ONNX
+    Runtime FP32 30ms -> 87ms). 그래서 스레드 수를 환경과 인자 양쪽에서 강제한다.
     """
     import json
+    import os
     import subprocess
     import sys
+
+    threads = bench_threads()
+    env = dict(os.environ)
+    env["OMP_NUM_THREADS"] = str(threads)
+    env["BENCH_THREADS"] = str(threads)
 
     with tempfile.TemporaryDirectory(prefix="bench_") as tmp:
         payload = Path(tmp) / "tensors.npy"
@@ -213,6 +221,7 @@ def measure_inference(kind: str, source: str, tensors: Sequence[np.ndarray]) -> 
             [sys.executable, "-m", "src.benchmark", "--worker", kind, source, str(payload)],
             cwd=str(Path(__file__).resolve().parent.parent),
             capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=env,
         )
     if proc.returncode != 0:
         raise RuntimeError(f"{kind} 측정 실패: {proc.stderr.strip()[-400:]}")
@@ -221,12 +230,17 @@ def measure_inference(kind: str, source: str, tensors: Sequence[np.ndarray]) -> 
 
 def _measure_in_process(kind: str, source: str, tensors: Sequence[np.ndarray]) -> List[float]:
     """워커 프로세스에서 실제로 도는 측정 루프 (전·후처리 제외한 forward 구간)."""
-    threads = _thread_count()
+    import os
+
+    threads = int(os.environ.get("BENCH_THREADS") or bench_threads())
 
     if kind == "torch":
         import torch
 
         from ultralytics import YOLO
+
+        # ultralytics import가 OMP_NUM_THREADS를 다시 1로 덮어쓰므로 import 이후에 고정한다.
+        torch.set_num_threads(threads)
 
         # ONNX export는 conv+bn이 합쳐진 그래프를 내보내므로, PyTorch 쪽도 fuse해야
         # 같은 연산량을 비교하게 된다. fuse를 빼면 PyTorch가 부당하게 느리게 나온다.
